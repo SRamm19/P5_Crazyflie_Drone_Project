@@ -18,7 +18,7 @@ uri = uri_helper.uri_from_env(default='radio://0/80/2M/E7E7E7E7E8')
 
 logging.basicConfig(level=logging.ERROR)
 
-class MotorRampExample:
+class DroneCommands:
     """Example that connects to a Crazyflie and ramps the motors up/down and
     the disconnects"""
 
@@ -59,18 +59,17 @@ class MotorRampExample:
         print('Disconnected from %s' % link_uri)
 
     def _ramp_motors(self):
-        # Unlock startup thrust protection
+            # Unlock startup thrust protection
         self._cf.commander.send_setpoint(0, 0, 0, 0)
 
     def send_drone_command(self, _desired_roll, _desired_pitch, _desired_yawrate, _desired_thrust):
-        #print("sending thrust: " + str(_desired_thrust))
-
+            # Ensures maximum and minimum thrust isn't exceeded
         if (_desired_thrust < 0):
             _desired_thrust = 0
         elif (_desired_thrust > 0xFFFF):
             _desired_thrust = 0xFFFF
 
-        max_Rot = 15
+        max_Rot = 15 # max/min value of Roll and Pitch
         if (_desired_roll < -max_Rot):
             _desired_roll = -max_Rot
         elif (_desired_roll > max_Rot):
@@ -80,46 +79,55 @@ class MotorRampExample:
         elif (_desired_pitch > max_Rot):
             _desired_pitch = max_Rot
 
-        #print("sending thrust: ", _desired_thrust)
-        #print("sending roll: ", _desired_roll)
-        #print("sending pitch: ", _desired_pitch)
-        print("sending yawrate", _desired_yawrate)
-        self._cf.commander.send_setpoint(_desired_roll, _desired_pitch, _desired_yawrate, int(_desired_thrust))
+            # Terminal outputs of values for troubleshooting
+        print("sending thrust:", _desired_thrust)
+        #print("sending roll:", _desired_roll)
+        #print("sending pitch:", _desired_pitch)
+        #print("sending yawrate:", _desired_yawrate)
+
+            
+        self._cf.commander.send_setpoint(_desired_roll, _desired_pitch, _desired_yawrate, int(_desired_thrust)) # Send Set points to the drone
 
 class ControlParameters:
     """Parameters used for the PID controller"""
     def __init__(self):
-        self.Hz = 10
-
-        self.kp = 3741
+        self.Hz = 10  # Frequency of the code
+            
+        self.kp = 3741 
+        self.ki = 1000      # Proportional, Integral and Derivative coefficient for the z-axis
         self.kd = 3000
-        self.ki = 10
-
+            
         self.kp_xy = 3
-        self.kd_xy = 0#0.025
-        self.ki_xy = 0#0.1
+        self.ki_xy = 0.5      # Proportional, Integral and Derivative coefficient for the x- and y-axis
+        self.kd_xy = 2.5 
 
-        self.kp_yaw = 0.5
-        self.kd_yaw = 0.1
-        self.ki_yaw = 0#.02
+        self.kp_yaw = 2
+        self.ki_yaw = 0.01     # Proportional, Integral and Derivative coefficient for the yaw rotation
+        self.kd_yaw = 0.1 
+            
 
-        self.offset = -1000
+        self.offset_roll    = 0 # Difference between calculated input required to hover compared to actual input required 
+        self.offset_pitch   = 0
+        self.offset_yawrate = 0
+        self.offset_thrust  = -5000 
 
-        self.pose_z_list = [9999, 9999, 9999, 9999]
+            # Lists containing 4 last states measured from the z, x, y and yaw positions
+        self.pose_x_list   = [9999, 9999, 9999, 9999]
+        self.pose_y_list   = [9999, 9999, 9999, 9999]
+        self.pose_z_list   = [9999, 9999, 9999, 9999]
         self.pose_yaw_list = [9999, 9999, 9999, 9999]
-        self.pose_x_list = [9999, 9999, 9999, 9999]
-        self.pose_y_list = [9999, 9999, 9999, 9999]
 
+            # Summarized error on x, y, z and yaw
+        self.inte_x = 0 
         self.inte_y = 0
-        self.inte_x = 0
         self.inte_z = 0
         self.inte_yaw = 0
 
     def _getTrajectory(self):
         pass
 
-    def integrator(self, _i, _current_error, _inte):
-        _inte = (_i/self.Hz)*_current_error + _inte
+    def integrator(self, _current_error, _inte):
+        _inte = (1/self.Hz)*_current_error + _inte
         return _inte
 
     def diff(self, _y, pose_list):
@@ -135,84 +143,98 @@ class ControlParameters:
         return _result
 
 
-
 def PID_Controller(_trajectory_thrust, _statevector, _t):
     try:
         client.GetFrame()    
         list,occ = client.GetSegmentGlobalTranslation(OBJECT, OBJECT )
         _statevector = [float(list[0])/1000,float(list[1])/1000,float(list[2])/1000]
-
         list_rpy,occ = client.GetSegmentGlobalRotationEulerXYZ(OBJECT, OBJECT )
         rotationvector = [float(list_rpy[0])*180/3.141592,float(list_rpy[1])*180/3.141592,float(list_rpy[2])*180/3.141592]
     except ViconDataStream.DataStreamException as e:
         print(e)
     if _statevector[2] == 0.0:
         _statevector[2] = 4.0
-    print("Yaw position:", rotationvector[2])
+
+    #print("X position:", statevector[0])
+    #print("Y position:", statevector[1])
     #print("Z position:", statevector[2])
+    #print("Yaw position:", rotationvector[2])
 
     SetPoint_x   = 0
     SetPoint_y   = 0
     SetPoint_z   = trajectory_position[interals]
     SetPoint_yaw = 0
 
-    SetPoint_roll    = 0   
-    SetPoint_pitch   = 0
-    SetPoint_yawrate = 0
-    SetPoint_thrust  = _trajectory_thrust + Control_Param.offset
+    #print("x setpoint is:", SetPoint_x)
+    #print("y setpoint is:", SetPoint_y)
+    #print("z setpoint is:", SetPoint_z)
+    #print("yaw setpoint is:", SetPoint_yaw)
+
+    SetPoint_roll    = 0 + Control_Param.offset_roll
+    SetPoint_pitch   = 0 + Control_Param.offset_pitch
+    SetPoint_yawrate = 0 + Control_Param.offset_yawrate
+    SetPoint_thrust  = _trajectory_thrust + Control_Param.offset_thrust
+
+    #print("roll setpoint is:", SetPoint_roll)
+    #print("pitch setpoint is:", SetPoint_pitch)
+    #print("thrust setpoint is:", SetPoint_thrust)
+    #print("yawrate setpoint is:", SetPoint_yawrate)
 
     error_x   = SetPoint_x - _statevector[0]
     error_y   = SetPoint_y - _statevector[1]
-    error_z   = trajectory_position[interals] - _statevector[2]
-    error_yaw = -(SetPoint_yaw - rotationvector[2])
+    error_z   = SetPoint_z - _statevector[2]
+    error_yaw = SetPoint_yaw - rotationvector[2]
 
-    margin_yaw = 10
-    if (rotationvector[2] > 0-margin_yaw and rotationvector[2] < 0+margin_yaw):
-        error_y = -error_y
-    elif (rotationvector[2] < -180+margin_yaw or rotationvector[2] > 180-margin_yaw):
-        error_x = -error_x
+    print("x error is:", error_x)
+    print("y error is:", error_y)
+    print("Z error is:", error_z)
+    print("yaw error is:", error_yaw)
 
-    Control_Param.inte_x   = Control_Param.integrator(_t, error_x,   Control_Param.inte_x)
-    Control_Param.inte_y   = Control_Param.integrator(_t, error_y,   Control_Param.inte_y)
-    Control_Param.inte_z   = Control_Param.integrator(_t, error_z,   Control_Param.inte_z)
-    Control_Param.inte_yaw = Control_Param.integrator(_t, error_yaw, Control_Param.inte_yaw)
+    if _statevector[2] is not 4.0:
+        Control_Param.inte_x   = Control_Param.integrator(error_x,   Control_Param.inte_x)
+        Control_Param.inte_y   = Control_Param.integrator(error_y,   Control_Param.inte_y)
+        Control_Param.inte_z   = Control_Param.integrator(error_z,   Control_Param.inte_z)
+        Control_Param.inte_yaw = Control_Param.integrator(error_yaw, Control_Param.inte_yaw)
 
+    #print("x integral is:", Control_Param.inte_x)
+    #print("y integral is:", Control_Param.inte_y)
+    #print("Z integral is:", Control_Param.inte_z)
+    #print("yaw integral is:", Control_Param.inte_yaw)
 
     diff_x   = Control_Param.diff(error_x,   Control_Param.pose_x_list)
     diff_y   = Control_Param.diff(error_y,   Control_Param.pose_y_list)
-    diff_yaw = Control_Param.diff(error_yaw, Control_Param.pose_yaw_list)
     diff_z   = Control_Param.diff(error_z,   Control_Param.pose_z_list)
+    diff_yaw = Control_Param.diff(error_yaw, Control_Param.pose_yaw_list)
 
-    PID_inte_x = Control_Param.inte_x
-    PID_inte_y = Control_Param.inte_y
+    #print("x diff is:", diff_x)
+    #print("y diff is:", diff_y)
+    #print("Z diff is:", diff_z)
+    #print("yaw diff is:", diff_yaw)
 
-    if (((rotationvector[2] < 0-margin_yaw) and (rotationvector[2] > -180+margin_yaw)) or 
-        ((rotationvector[2] > 0+margin_yaw) and (rotationvector[2] <  180-margin_yaw))):
-        error_y = 0
-        error_x = 0
-        PID_inte_x = 0
-        PID_inte_y = 0
-        diff_x = 0
-        diff_y = 0
+    margin_yaw = 5
+    if (rotationvector[2] >= 0-margin_yaw and rotationvector[2] <= 0+margin_yaw):
+        ControlVariable_roll  = -1*(error_y*Control_Param.kp_xy    + Control_Param.inte_y*Control_Param.ki_xy    + diff_y*Control_Param.kd_xy)
+        ControlVariable_pitch =     error_x*Control_Param.kp_xy    + Control_Param.inte_x*Control_Param.ki_xy    + diff_x*Control_Param.kd_xy
+    elif (rotationvector[2] <= -180+margin_yaw or rotationvector[2] >= 180-margin_yaw):
+        ControlVariable_roll  =     error_y*Control_Param.kp_xy    + Control_Param.inte_y*Control_Param.ki_xy    + diff_y*Control_Param.kd_xy
+        ControlVariable_pitch = -1*(error_x*Control_Param.kp_xy    + Control_Param.inte_x*Control_Param.ki_xy    + diff_x*Control_Param.kd_xy)
+    else:
+        ControlVariable_roll  = 0
+        ControlVariable_pitch = 0
 
-    #print("x diff is: ", diff_x*Control_Param.kd_xy)
-    #print("y diff is: ", diff_y*Control_Param.kd_xy)
+    ControlVariable_yawrate = -1*(error_yaw*Control_Param.kp_yaw + Control_Param.inte_yaw*Control_Param.ki_yaw + diff_yaw*Control_Param.kd_yaw)
+    ControlVariable_thrust  =     error_z*Control_Param.kp       + Control_Param.inte_z*Control_Param.ki       + diff_z*Control_Param.kd
 
-    ProcessVariable_roll    = error_y*Control_Param.kp_xy    + PID_inte_y*Control_Param.ki_xy              + diff_y*Control_Param.kd_xy
-    ProcessVariable_pitch   = error_x*Control_Param.kp_xy    + PID_inte_x*Control_Param.ki_xy              + diff_x*Control_Param.kd_xy
-    ProcessVariable_yawrate = error_yaw*Control_Param.kp_yaw + Control_Param.inte_yaw*Control_Param.ki_yaw + diff_yaw*Control_Param.kd_yaw
-    ProcessVariable_thrust  = error_z*Control_Param.kp       + Control_Param.inte_z*Control_Param.ki       + diff_z*Control_Param.kd
+    print("Control variable of roll is:", ControlVariable_roll)
+    print("Control variable of pitch is:", ControlVariable_pitch)
+    print("Control variable of yawrate is:", ControlVariable_yawrate)
+    print("Control variable of thrust is:", ControlVariable_thrust)
 
     if _t > 1:
-        DroneConnector.send_drone_command(SetPoint_roll    + ProcessVariable_roll, 
-                                          SetPoint_pitch   + ProcessVariable_pitch, 
-                                          SetPoint_yawrate + ProcessVariable_yawrate,
-                                          SetPoint_thrust  + ProcessVariable_thrust)
+        DroneConnector.send_drone_command(SetPoint_roll + ControlVariable_roll, SetPoint_pitch + ControlVariable_pitch, SetPoint_yawrate + ControlVariable_yawrate, SetPoint_thrust + ControlVariable_thrust)
     else:
         DroneConnector.send_drone_command(0,0,0,0)
     return _statevector
-
-
 
 
 trajectory_thrust = [55578, 55324, 55071, 54817, 54564, 54310, 54056, 53803, 53549, 53295,
@@ -230,7 +252,6 @@ trajectory_position = [ 0.0,    0.0033, 0.0127, 0.028,  0.0486, 0.0741, 0.104,  
 
 if __name__ == '__main__':
     # Initialize the low-level drivers
-
     Control_Param = ControlParameters()
     OBJECT="gr562"
     parser = argparse.ArgumentParser(description=__doc__)
@@ -258,11 +279,9 @@ if __name__ == '__main__':
             client.GetFrame()
     client.SetAxisMapping( ViconDataStream.Client.AxisMapping.EForward, ViconDataStream.Client.AxisMapping.ELeft, ViconDataStream.Client.AxisMapping.EUp )
     #client.ConfigureWireless()
-
-    interals = 0
-    t_decisec = 0
     cflib.crtp.init_drivers()
-    DroneConnector = MotorRampExample(uri)
+    DroneConnector = DroneCommands(uri)
+    interals = 0
 
     stop = False
     stopping_counter = 0
@@ -273,14 +292,12 @@ if __name__ == '__main__':
             break
         else:
             interals += 1
-            t_decisec=interals
         if keyboard.is_pressed('space'):
             stop = True
         if stop == False:
-            statevector = PID_Controller(thrust, statevector, t_decisec)
-
+            statevector = PID_Controller(thrust, statevector, interals)
         else:
-            statevector = PID_Controller(45000, statevector, t_decisec)
+            statevector = PID_Controller(45000, statevector, interals)
             stopping_counter += 1
             if (stopping_counter == 20):
                 break
@@ -292,19 +309,17 @@ if __name__ == '__main__':
             print("Frequence was " + str(1/result) + " Hz")
         start_time = time.time()
 
-
     print("Starting hover sequence")
     while True:
         if keyboard.is_pressed('space'):
             stop = True
         if stop == False:
-            statevector = PID_Controller(trajectory_thrust[interals], statevector, t_decisec)
+            statevector = PID_Controller(trajectory_thrust[interals], statevector, interals)
         else:
-            statevector = PID_Controller(45000, statevector, t_decisec)
+            statevector = PID_Controller(45000, statevector, interals)
             stopping_counter += 1
             if (stopping_counter == 20):
                 break
-        t_decisec += 1
         result = time.time() - start_time
         if (result < 1/Control_Param.Hz):
             time.sleep((1/Control_Param.Hz) - result)
