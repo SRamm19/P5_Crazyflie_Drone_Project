@@ -46,7 +46,7 @@ class DroneCommands:
 
         # Start a separate thread to do the motor test.
         # Do not hijack the calling thread!
-        Thread(target=self._ramp_motors).start()
+        Thread(target=self._unlock_motors).start()
 
     def _connection_failed(self, link_uri, msg):
         """Callback when connection initial connection fails (i.e no Crazyflie
@@ -62,7 +62,7 @@ class DroneCommands:
         """Callback when the Crazyflie is disconnected (called in all cases)"""
         print('Disconnected from %s' % link_uri)
 
-    def _ramp_motors(self):
+    def _unlock_motors(self):
             # Unlock startup thrust protection
         self._cf.commander.send_setpoint(0, 0, 0, 0)
 
@@ -73,7 +73,7 @@ class DroneCommands:
         elif (_desired_thrust > 0xFFFF):
             _desired_thrust = 0xFFFF
 
-        max_Rot = 20 # max/min value of Roll and Pitch
+        max_Rot = 15 # max/min value of Roll and Pitch
         if (_desired_roll < -max_Rot):
             _desired_roll = -max_Rot
         elif (_desired_roll > max_Rot):
@@ -92,9 +92,9 @@ class DroneCommands:
             
         self._cf.commander.send_setpoint(_desired_roll, _desired_pitch, _desired_yawrate, int(_desired_thrust)) # Send Set points to the drone
 
+
 class PID_Parameters:
-    def __init__(self, title, k_p, k_i, k_d):
-        self.title = title
+    def __init__(self, k_p, k_i, k_d):
         self.kp    = k_p
         self.ki    = k_i
         self.kd    = k_d
@@ -106,30 +106,31 @@ class ControlParameters:
     """Parameters used for the PID controller"""
     def __init__(self, statevector):
         self.Hz = 10  # Frequency of the code
-
-        self.Param_x   = PID_Parameters('x',      3.0,   1.0,     7.0) 
-        self.Param_y   = PID_Parameters('y',      3.0,   1.0,     7.0)
-        self.Param_z   = PID_Parameters('z',   5643.0, 500.0, 26000.0)   
-        self.Param_yaw = PID_Parameters('yaw',   50.0,   0.6,     6.0)   
+                                     #      Kp     Ki       Kd
+        self.Param_x   = PID_Parameters(   3.0,   1.0,     7.0) 
+        self.Param_y   = PID_Parameters(   3.0,   1.0,     7.0)
+        self.Param_z   = PID_Parameters(5643.0, 500.0, 26000.0)   
+        self.Param_yaw = PID_Parameters(  50.0,   0.6,     6.0)   
 
         self.offset_roll    = 0 # Difference between calculated input required to hover compared to actual input required 
         self.offset_pitch   = 0
         self.offset_yawrate = 0
         self.offset_thrust  = 0 
 
-        self._pos_x, self._vel_x, self._acc_x, self._pos_y, self._vel_y, self._acc_y, self._pos_z, self._vel_z, self._acc_z, self._roll, self._pitch, self._thrust = self._getTrajectory(statevector)
-        self.x_array      = [self._pos_x, self._vel_x, self._acc_x ]
-        self.y_array      = [self._pos_y, self._vel_y, self._acc_y ]
-        self.z_array      = [self._pos_z, self._vel_z, self._acc_z ]
-        self.inputs_array = [self._roll,  self._pitch, self._thrust]
+        self._trajectory_list = self._getTrajectory(statevector)
+        self.x_array      = [self._trajectory_list[0], self._trajectory_list[ 1], self._trajectory_list[ 2]]
+        self.y_array      = [self._trajectory_list[3], self._trajectory_list[ 4], self._trajectory_list[ 5]]
+        self.z_array      = [self._trajectory_list[6], self._trajectory_list[ 7], self._trajectory_list[ 8]]
+        self.inputs_array = [self._trajectory_list[9], self._trajectory_list[10], self._trajectory_list[11]]
         
 
     def _getTrajectory(self, statevector):
         #start_point=statevector
         #start_point.append(0)
-        start_point=[ 0.,0.,0.,0.]
-        via_points = ([[ 0.,0.,1., 5.],[ -1.,0.,1.,10.],[-1.,1.,1.,15.],[0.,1.,1.,20.],[ 0.,0.,1.,25.]])
-        end_point = [0.,0.,0.,30.]
+        start_point = [ 1.,1.,0.,0.]
+        via_points = ([[1.,1.,1.,2],[-1.,1.,1.,4],[-1.,-1.,1.,6],[1.,-1.,1.,8],
+                       [1.,1.,1.,10]])
+        end_point = [1.,1.,0.,15.]
         print("Starting Matlab engine")
         eng = matlab.engine.start_matlab()
         path = "C:\\Users\\SebBl\\Documents\\WrittenPrograms\\Matlab" # specify your path
@@ -186,10 +187,10 @@ def Controller(_statevector, _t):
     if _statevector[2] == 0.0:
         _statevector[2] = 4.0
 
-    SetPoint_roll    = -(Control_Param.inputs_array[0][interals] + PID_Controller(_statevector[1], Control_Param.y_array[0][interals], Control_Param.Param_y))
-    SetPoint_pitch   = -(Control_Param.inputs_array[1][interals] - PID_Controller(_statevector[0], Control_Param.x_array[0][interals], Control_Param.Param_x))
-    SetPoint_thrust  =   Control_Param.inputs_array[2][interals] + PID_Controller(_statevector[2], Control_Param.z_array[0][interals], Control_Param.Param_z)
-    SetPoint_yawrate = -(                                      0 + PID_Controller(rotationvector[2],                                0, Control_Param.Param_yaw))
+    SetPoint_roll    = Control_Param.inputs_array[0][interals] + PID_Controller(_statevector[1], Control_Param.y_array[0][interals], Control_Param.Param_y)
+    SetPoint_pitch   = Control_Param.inputs_array[1][interals] - PID_Controller(_statevector[0], Control_Param.x_array[0][interals], Control_Param.Param_x)
+    SetPoint_thrust  = Control_Param.inputs_array[2][interals] + PID_Controller(_statevector[2], Control_Param.z_array[0][interals], Control_Param.Param_z)
+    SetPoint_yawrate = -(                                    0 + PID_Controller(rotationvector[2],                                0, Control_Param.Param_yaw))
 
     SetPoint_roll, SetPoint_pitch = Control_Param.convert2baseframe(SetPoint_roll, SetPoint_pitch, rotationvector[2])
 
@@ -202,11 +203,8 @@ def Controller(_statevector, _t):
 
 if __name__ == '__main__':
     OBJECT="gr562"
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('host', nargs='?', help="Host name, in the format of server:port", default = "192.168.1.33:801")  #set ip adressen. 
-    args = parser.parse_args()
     client = ViconDataStream.Client()
-    client.Connect( args.host )
+    client.Connect( "192.168.1.33:801")
     client.SetBufferSize( 1 )
     client.EnableSegmentData()
 
@@ -219,7 +217,7 @@ if __name__ == '__main__':
             statevector=[float(list[0])/1000,float(list[1])/1000,float(list[2])/1000]
 
             list_rpy,occ= client.GetSegmentGlobalRotationEulerXYZ(OBJECT, OBJECT )
-            rotationvector=[float(list[0]),float(list[1]),float(list[2])]
+            rotationvector=[float(list_rpy[0]),float(list_rpy[1]),float(list_rpy[2])]
 
             HasFrame = True
         except ViconDataStream.DataStreamException as e:
@@ -237,7 +235,7 @@ if __name__ == '__main__':
     for thrust in Control_Param.inputs_array[2]:
         start_time = time.time()
         statevector = Controller(statevector, interals)
-        print(statevector[0], ',', statevector[1], ',', statevector[2])
+        print(statevector[0], ',', statevector[1], ',', statevector[2], ',',Control_Param.x_array[0][interals],',',Control_Param.y_array[0][interals],',',Control_Param.z_array[0][interals], ',', interals)
         interals += 1
 
         result = time.time() - start_time
@@ -246,7 +244,7 @@ if __name__ == '__main__':
         else:
             print("code too slow")
             print("Frequence was " + str(1/result) + " Hz")
-    
+    output=client.Disconnect()
     DroneConnector.send_drone_command(0,0,0,0)
 
 
