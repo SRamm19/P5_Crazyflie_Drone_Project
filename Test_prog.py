@@ -194,7 +194,7 @@ def Controller(_statevector, _t):
 
     SetPoint_roll, SetPoint_pitch = Control_Param.convert2baseframe(SetPoint_roll, SetPoint_pitch, rotationvector[2])
 
-    if _t > 1:
+    if _t >= 1:
         DroneConnector.send_drone_command(SetPoint_roll, SetPoint_pitch, SetPoint_yawrate, SetPoint_thrust)
     else:
         DroneConnector.send_drone_command(0,0,0,0)
