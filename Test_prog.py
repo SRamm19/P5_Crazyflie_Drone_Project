@@ -133,8 +133,8 @@ class ControlParameters:
         end_point = [1.,1.,0.,15.]
         print("Starting Matlab engine")
         eng = matlab.engine.start_matlab()
-        path = "C:\\Users\\SebBl\\Documents\\WrittenPrograms\\Matlab" # specify your path
-        eng.addpath(path, nargout= 0)
+        matlabpath = "Path to matlab files" # specify your path
+        eng.addpath(matlabpath, nargout= 0)
         print("Starting Matlab code")
         return eng.GetTrajectoryxyz(matlab.double(start_point),matlab.double(via_points),matlab.double(end_point),matlab.double([self.Hz]))
 
